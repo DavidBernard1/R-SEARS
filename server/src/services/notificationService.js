@@ -4,12 +4,12 @@ const { env } = require('../config/env');
 
 async function sendEmergencyAlert({ type, userId, incident, location }) {
   const subject = `Emergency ${type.toUpperCase()} Alert`;
-  const text = `User ${userId} triggered emergency at latitude ${location.latitude}, longitude ${location.longitude}. Incident ID: ${incident.id}`;
+  const text = `Emergency alert triggered by user ${userId} near latitude ${location.latitude} and longitude ${location.longitude}. Incident ID: ${incident.id}.`;
 
   if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) {
     const transporter = nodemailer.createTransport({
       host: env.SMTP_HOST,
-      port: Number(env.SMTP_PORT || 587),
+      port: env.SMTP_PORT,
       secure: false,
       auth: {
         user: env.SMTP_USER,
@@ -25,16 +25,16 @@ async function sendEmergencyAlert({ type, userId, incident, location }) {
     });
   }
 
-  return { success: true, message: 'Emergency email alert queued' };
+  return { success: true, message: 'Emergency email alert queued', subject, text };
 }
 
 async function sendWhatsAppAlert({ phone, message }) {
   if (!env.WHATSAPP_TOKEN) {
-    return { success: false, message: 'WhatsApp configuration missing' };
+    return { success: false, message: 'WhatsApp config missing' };
   }
 
   try {
-    const response = await axios.post(env.WHATSAPP_API_URL || 'https://api.whatsapp.com', {
+    const response = await axios.post(env.WHATSAPP_API_URL, {
       to: phone,
       text: message
     }, {

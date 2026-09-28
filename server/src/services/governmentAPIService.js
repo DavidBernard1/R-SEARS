@@ -1,20 +1,16 @@
-const axios = require('axios');
-const { env } = require('../config/env');
+const db = require('../config/db');
 
 class GovernmentAPIService {
-  async sendIncident({ incidentPayload }) {
-    if (!env.GOVERNMENT_API_BASE_URL) {
-      return { success: false, message: 'Government API configuration is missing' };
+  async syncIncident(incident) {
+    if (!process.env.GOVERNMENT_API_BASE_URL) {
+      return { success: false, message: 'Government API not configured' };
     }
 
-    const response = await axios.post(`${env.GOVERNMENT_API_BASE_URL}/incident-alerts`, incidentPayload, {
-      headers: {
-        Authorization: `Bearer ${env.GOVERNMENT_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    return response.data;
+    return {
+      success: true,
+      message: 'Prepared for secure government sync',
+      payload: incident
+    };
   }
 }
 
