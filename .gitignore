@@ -1,0 +1,29 @@
+# .gitignore
+
+node_modules/
+.env
+.env.local
+.env.production
+npm-debug.log*
+.DS_Store
+.vscode/
+coverage/
+.dist/
+build/
+.cache/
+*.log
+.flutter-plugins
+.flutter-plugins-dependencies
+.dart_tool/
+.packages
+.pub-cache/
+.pub-spec.lock
+android/app/release/
+ios/Pods/
+ios/Runner.xcworkspace/
+
+# Vercel
+.vercel/
+
+# OS artifacts
+Thumbs.db

@@ -1,0 +1,54 @@
+openapi: 3.0.3
+info:
+  title: R-SEARS API
+  version: 1.0.0
+  description: Rwanda Smart Emergency Accident Response System API specification
+servers:
+  - url: http://localhost:5000/api/v1
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, role]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+      responses:
+        '201':
+          description: Created
+  /auth/login:
+    post:
+      summary: Login user
+      responses:
+        '200':
+          description: Success
+  /incidents:
+    post:
+      summary: Create accident report
+      responses:
+        '201':
+          description: Created
+  /police/incidents/{id}/accept:
+    patch:
+      summary: Accept emergency incident
+      responses:
+        '200':
+          description: Updated
+  /hospital/ambulances:
+    get:
+      summary: List ambulances
+      responses:
+        '200':
+          description: Success
