@@ -1,53 +1,29 @@
-const nodemailer = require('nodemailer');
-const axios = require('axios');
-const { env } = require('../config/env');
+const { v4: uuidv4 } = require('uuid');
+const db = require('../config/db');
 
-async function sendEmergencyAlert({ type, userId, incident, location }) {
-  const subject = `Emergency ${type.toUpperCase()} Alert`;
-  const text = `Emergency alert triggered by user ${userId} near latitude ${location.latitude} and longitude ${location.longitude}. Incident ID: ${incident.id}.`;
+class NotificationService {
+  async sendEmergencyAlert({ type, userId, incident, location }) {
+    const subject = `Emergency ${type.toUpperCase()} Alert`;
+    const body = `Emergency alert triggered by user ${userId}. Location: ${location.latitude}, ${location.longitude}. Incident ID: ${incident.id}.`;
 
-  if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) {
-    const transporter = nodemailer.createTransport({
-      host: env.SMTP_HOST,
-      port: env.SMTP_PORT,
-      secure: false,
-      auth: {
-        user: env.SMTP_USER,
-        pass: env.SMTP_PASS
-      }
-    });
+    await db.query(
+      `INSERT INTO notifications (id, user_id, channel, template, payload, sent_at)
+       VALUES ($1, $2, 'email', $3, $4::jsonb, NOW())`,
+      [uuidv4(), userId, subject, JSON.stringify({ subject, body, incidentId: incident.id })]
+    );
 
-    await transporter.sendMail({
-      from: env.SMTP_USER,
-      to: 'davidimanishimwe29@gmail.com',
-      subject,
-      text
-    });
+    return { success: true, message: 'Alert queued for email notification', subject, body };
   }
 
-  return { success: true, message: 'Emergency email alert queued', subject, text };
-}
+  async sendWhatsAppAlert({ phone, message }) {
+    await db.query(
+      `INSERT INTO notifications (id, user_id, channel, template, payload, sent_at)
+       VALUES ($1, NULL, 'whatsapp', 'emergency', $2::jsonb, NOW())`,
+      [uuidv4(), JSON.stringify({ phone, message })]
+    );
 
-async function sendWhatsAppAlert({ phone, message }) {
-  if (!env.WHATSAPP_TOKEN) {
-    return { success: false, message: 'WhatsApp config missing' };
-  }
-
-  try {
-    const response = await axios.post(env.WHATSAPP_API_URL, {
-      to: phone,
-      text: message
-    }, {
-      headers: {
-        Authorization: `Bearer ${env.WHATSAPP_TOKEN}`
-      }
-    });
-
-    return { success: true, payload: response.data };
-  } catch (error) {
-    console.error('WhatsApp alert failed:', error.message);
-    return { success: false, message: 'WhatsApp alert failed' };
+    return { success: true, message: 'Alert queued for WhatsApp' };
   }
 }
 
-module.exports = { sendEmergencyAlert, sendWhatsAppAlert };
+module.exports = new NotificationService();
