@@ -1,61 +1,141 @@
 const express = require('express');
 const db = require('../config/db');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
-const { sendEmergencyAlert, sendWhatsAppAlert } = require('../services/notificationService');
+const auditService = require('../services/auditService');
+const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
-router.post('/sos', authenticateToken, authorizeRoles('driver', 'moto_rider', 'ambulance_driver'), async (req, res) => {
+// Create incident report
+router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { latitude, longitude, impact_level, speed_kmh, incident_type = 'accident' } = req.body;
+    const { latitude, longitude, impact_level, speed_kmh, incident_type = 'accident', notes = null } = req.body;
 
-    const incident = await db.query(
-      `INSERT INTO accidents (id, driver_id, latitude, longitude, impact_level, speed_kmh, incident_type, status, created_at, updated_at)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW())
+    if (!latitude || !longitude) {
+      return res.status(400).json({ 
+        status: 'error',
+        error: 'Latitude and longitude required' 
+      });
+    }
+
+    const incidentId = uuidv4();
+
+    const result = await db.query(
+      `INSERT INTO accidents (id, driver_id, latitude, longitude, impact_level, speed_kmh, incident_type, notes, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'new', NOW(), NOW())
        RETURNING *`,
-      [req.user.id, latitude, longitude, impact_level, speed_kmh, incident_type]
+      [incidentId, req.user.id, latitude, longitude, impact_level, speed_kmh, incident_type, notes]
     );
 
-    await sendEmergencyAlert({
-      type: 'accident',
+    await auditService.createAuditLog({
       userId: req.user.id,
-      incident: incident.rows[0],
-      location: { latitude, longitude }
+      action: 'INCIDENT_CREATED',
+      entityType: 'accident',
+      entityId: incidentId
     });
 
-    await sendWhatsAppAlert({
-      phone: '+250789600279',
-      message: `Emergency alert: accident reported near ${latitude}, ${longitude}`
-    });
-
-    res.status(201).json({
-      message: 'Emergency SOS sent successfully',
-      incident: incident.rows[0]
+    res.status(201).json({ 
+      status: 'success',
+      message: 'Incident recorded',
+      data: result.rows[0] 
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      status: 'error',
+      error: error.message 
+    });
   }
 });
 
-router.get('/nearby-services', authenticateToken, async (req, res) => {
+// Get all incidents (filtered by role)
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { latitude, longitude, radius_km = 10 } = req.query;
+    let query = 'SELECT id, driver_id, latitude, longitude, status, incident_type, created_at FROM accidents';
+    let params = [];
 
-    const policeStations = await db.query(
-      `SELECT * FROM police_stations
-       WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326), $3)`,
-      [Number(longitude), Number(latitude), Number(radius_km) * 1000]
-    );
+    if (req.user.role === 'driver' || req.user.role === 'moto_rider') {
+      query += ' WHERE driver_id = $1';
+      params = [req.user.id];
+    }
 
-    const hospitals = await db.query(
-      `SELECT * FROM hospitals
-       WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326), $3)`,
-      [Number(longitude), Number(latitude), Number(radius_km) * 1000]
-    );
+    query += ' ORDER BY created_at DESC LIMIT 50';
 
-    res.status(200).json({ policeStations: policeStations.rows, hospitals: hospitals.rows });
+    const result = await db.query(query, params);
+    res.status(200).json({ 
+      status: 'success',
+      data: result.rows 
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      status: 'error',
+      error: error.message 
+    });
+  }
+});
+
+// Get incident details
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT * FROM accidents WHERE id = $1',
+      [req.params.id]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ 
+        status: 'error',
+        error: 'Incident not found' 
+      });
+    }
+
+    res.status(200).json({ 
+      status: 'success',
+      data: result.rows[0] 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error',
+      error: error.message 
+    });
+  }
+});
+
+// Update incident status
+router.patch('/:id/resolve', authenticateToken, authorizeRoles('police_officer', 'hospital_admin', 'national_dispatcher', 'super_admin'), async (req, res) => {
+  const { id } = req.params;
+  const { status = 'resolved', notes = null } = req.body;
+
+  try {
+    const result = await db.query(
+      `UPDATE accidents SET status = $1, notes = COALESCE($2, notes), updated_at = NOW() WHERE id = $3 RETURNING *`,
+      [status, notes, id]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ 
+        status: 'error',
+        error: 'Incident not found' 
+      });
+    }
+
+    await auditService.createAuditLog({
+      userId: req.user.id,
+      action: 'INCIDENT_RESOLVED',
+      entityType: 'accident',
+      entityId: id,
+      metadata: { status }
+    });
+
+    res.status(200).json({ 
+      status: 'success',
+      message: 'Incident updated',
+      data: result.rows[0] 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error',
+      error: error.message 
+    });
   }
 });
 
